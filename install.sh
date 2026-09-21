@@ -96,6 +96,7 @@ command -v crontab >/dev/null 2>&1 || MISSING_DEPS+=("cron")
 command -v unzip >/dev/null 2>&1 || MISSING_DEPS+=("unzip")
 command -v curl >/dev/null 2>&1 || MISSING_DEPS+=("curl")
 command -v git >/dev/null 2>&1 || MISSING_DEPS+=("git")
+command -v caddy >/dev/null 2>&1 || MISSING_DEPS+=("caddy")
 
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "  -> Missing packages detected: ${YELLOW}${MISSING_DEPS[*]}${NC}"
@@ -104,30 +105,94 @@ if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     if command -v apt-get >/dev/null 2>&1; then
         $SUDO apt-get update -y
         $SUDO apt-get install -y tmux cron unzip curl git ca-certificates
+        # Install Caddy via official Cloudsmith repository if missing
+        if ! command -v caddy >/dev/null 2>&1; then
+            echo -e "  -> Configuring Caddy package repository for apt..."
+            $SUDO apt-get install -y debian-keyring debian-archive-keyring apt-transport-https gpg >/dev/null 2>&1 || true
+            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' 2>/dev/null | $SUDO gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null || true
+            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' 2>/dev/null | $SUDO tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null || true
+            $SUDO apt-get update -y || true
+            $SUDO apt-get install -y caddy || true
+        fi
         # Start cron service if present
         $SUDO service cron start >/dev/null 2>&1 || $SUDO systemctl start cron >/dev/null 2>&1 || $SUDO /etc/init.d/cron start >/dev/null 2>&1 || true
     elif command -v dnf >/dev/null 2>&1; then
         $SUDO dnf install -y tmux cronie unzip curl git ca-certificates
+        if ! command -v caddy >/dev/null 2>&1; then
+            echo -e "  -> Enabling Caddy Copr repository for dnf..."
+            $SUDO dnf install -y 'dnf-command(copr)' 2>/dev/null || true
+            $SUDO dnf copr enable -y @caddy/caddy 2>/dev/null || true
+            $SUDO dnf install -y caddy || true
+        fi
         $SUDO systemctl enable --now crond >/dev/null 2>&1 || $SUDO service crond start >/dev/null 2>&1 || true
     elif command -v yum >/dev/null 2>&1; then
         $SUDO yum install -y tmux cronie unzip curl git ca-certificates
+        if ! command -v caddy >/dev/null 2>&1; then
+            echo -e "  -> Enabling Caddy Copr repository for yum..."
+            $SUDO yum install -y yum-plugin-copr 2>/dev/null || true
+            $SUDO yum copr enable -y @caddy/caddy 2>/dev/null || true
+            $SUDO yum install -y caddy || true
+        fi
         $SUDO systemctl enable --now crond >/dev/null 2>&1 || $SUDO service crond start >/dev/null 2>&1 || true
     elif command -v apk >/dev/null 2>&1; then
-        $SUDO apk add --no-cache tmux cronie unzip curl git ca-certificates
+        $SUDO apk add --no-cache tmux cronie unzip curl git ca-certificates caddy
         crond >/dev/null 2>&1 || true
     elif command -v pacman >/dev/null 2>&1; then
-        $SUDO pacman -Sy --noconfirm tmux cronie unzip curl git ca-certificates
+        $SUDO pacman -Sy --noconfirm tmux cronie unzip curl git ca-certificates caddy
         $SUDO systemctl enable --now cronie >/dev/null 2>&1 || true
     elif command -v zypper >/dev/null 2>&1; then
-        $SUDO zypper install -y tmux cronie unzip curl git ca-certificates
+        $SUDO zypper install -y tmux cronie unzip curl git ca-certificates caddy
         $SUDO systemctl enable --now cron >/dev/null 2>&1 || true
     else
         echo -e "${RED}[ERROR] No supported package manager found (apt-get, dnf, yum, apk, pacman, zypper).${NC}"
         echo -e "Please install the missing tools manually: ${MISSING_DEPS[*]}"
         exit 1
     fi
+
+    # Fallback: If caddy is still not installed, download official static binary
+    if ! command -v caddy >/dev/null 2>&1; then
+        echo -e "  -> Package manager did not provide Caddy. Downloading official precompiled binary..."
+        CADDY_ARCH=""
+        case "$TARGET_ARCH" in
+            amd64)   CADDY_ARCH="amd64" ;;
+            arm64)   CADDY_ARCH="arm64" ;;
+            arm)     CADDY_ARCH="armv7" ;;
+            386)     CADDY_ARCH="386" ;;
+            riscv64) CADDY_ARCH="riscv64" ;;
+            ppc64le) CADDY_ARCH="ppc64le" ;;
+            s390x)   CADDY_ARCH="s390x" ;;
+            *)       CADDY_ARCH="amd64" ;;
+        esac
+        TMP_CADDY_DIR="$(mktemp -d)"
+        CADDY_URL="https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_linux_${CADDY_ARCH}.tar.gz"
+        if curl -fsSL "$CADDY_URL" -o "$TMP_CADDY_DIR/caddy.tar.gz" 2>/dev/null; then
+            tar -xzf "$TMP_CADDY_DIR/caddy.tar.gz" -C "$TMP_CADDY_DIR" 2>/dev/null || true
+            if [ -f "$TMP_CADDY_DIR/caddy" ]; then
+                chmod +x "$TMP_CADDY_DIR/caddy"
+                if [ -w "/usr/local/bin" ] || [ -n "$SUDO" ]; then
+                    $SUDO cp "$TMP_CADDY_DIR/caddy" /usr/local/bin/caddy
+                    [ -n "$SUDO" ] && command -v setcap >/dev/null 2>&1 && $SUDO setcap cap_net_bind_service=+ep /usr/local/bin/caddy >/dev/null 2>&1 || true
+                else
+                    mkdir -p "$HOME/.local/bin"
+                    cp "$TMP_CADDY_DIR/caddy" "$HOME/.local/bin/caddy"
+                    export PATH="$HOME/.local/bin:$PATH"
+                fi
+            fi
+        fi
+        rm -rf "$TMP_CADDY_DIR"
+    fi
 else
-    echo -e "  ✓ All required programs are already installed (${GREEN}tmux, cron, unzip, curl, git${NC})."
+    echo -e "  ✓ All required programs are already installed (${GREEN}tmux, cron, unzip, curl, git, caddy${NC})."
+fi
+
+# Ensure Caddy is installed and verified
+if command -v caddy >/dev/null 2>&1; then
+    echo -e "  ✓ Caddy verified: ${GREEN}$(caddy version 2>/dev/null | head -n 1 || echo 'installed')${NC}"
+    if command -v systemctl >/dev/null 2>&1; then
+        $SUDO systemctl enable --now caddy >/dev/null 2>&1 || true
+    fi
+else
+    echo -e "${YELLOW}  [WARNING] Caddy could not be verified in PATH. Domain routing features may require manual Caddy installation.${NC}"
 fi
 
 # Ensure cron daemon is running

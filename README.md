@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/inhay3k/bramboy_testing/main/instal
 
 ### What the installer automatically does:
 1. **Detects CPU Architecture**: Inspects system architecture (`amd64`, `arm64`, `arm`, `386`, `riscv64`, `ppc64le`, `s390x`).
-2. **Installs Missing Packages**: Auto-detects your package manager (`apt-get`, `dnf`, `yum`, `apk`, `pacman`, `zypper`) and installs required utilities (`tmux`, `cron`, `unzip`, `curl`, `git`).
+2. **Installs Missing Packages**: Auto-detects your package manager (`apt-get`, `dnf`, `yum`, `apk`, `pacman`, `zypper`) and installs required utilities (`tmux`, `cron`, `unzip`, `curl`, `git`, `caddy`).
 3. **Configures Permissions**: Makes binaries executable and sets up the `os-management-tool` symlink.
 4. **Registers Auto-Persistence**: Automatically schedules `@reboot` in `crontab` so BramBoy starts automatically whenever the server boots.
 5. **Launches BramBoy**: Runs the daemon in the background on port `5003` (`http://localhost:5003`).
@@ -35,7 +35,7 @@ chmod +x install.sh
 ```
 
 ### Option 2: Run Target Binary Directly
-If you already have required system packages (`tmux`, `cron`, `unzip`) installed:
+If you already have required system packages (`tmux`, `cron`, `unzip`, `caddy`) installed:
 
 ```bash
 # 1. Clone or download repository
@@ -82,6 +82,7 @@ BramBoy uses standard open-source Linux utilities. The installer automatically i
 | :--- | :--- |
 | **`tmux`** | Multiplexing background terminal sessions & PTY streaming |
 | **`cron` / `cronie`** | System `@reboot` auto-persistence & cronjob management |
+| **`caddy`** | Reverse proxy, automatic SSL/TLS certificates, and domain routing |
 | **`unzip`** | In-place archive extraction in the web File Explorer |
 | **`curl`** | Network communications |
 | **`git`** | Repository cloning & updates |
